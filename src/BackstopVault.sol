@@ -9,12 +9,12 @@ interface IERC20 {
 }
 
 interface ISwapRouter {
+    /// SwapRouter02-style params (no deadline), as deployed by HSKSwap on chain 177.
     struct ExactInputSingleParams {
         address tokenIn;
         address tokenOut;
         uint24 fee;
         address recipient;
-        uint256 deadline;
         uint256 amountIn;
         uint256 amountOutMinimum;
         uint160 sqrtPriceLimitX96;
@@ -268,7 +268,6 @@ contract BackstopVault {
                 tokenOut: address(tokenOut),
                 fee: poolFee,
                 recipient: address(this),
-                deadline: block.timestamp,
                 amountIn: amountIn,
                 amountOutMinimum: minOut,
                 sqrtPriceLimitX96: 0
