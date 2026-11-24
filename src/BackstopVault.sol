@@ -50,6 +50,7 @@ contract BackstopVault {
     uint256 public immutable seniorProfitBps;
     uint256 public immutable maxTradeBps;
     uint256 public immutable maxSlippageBps;
+    uint256 public immutable exitSlippageBps;
     uint256 public immutable cooldown;
     uint256 public immutable stopBps;
     uint256 public immutable tradingDuration;
@@ -79,6 +80,7 @@ contract BackstopVault {
     error NotAuthorized();
     error CapExceeded();
     error TradeTooLarge();
+    error ExposureTooHigh();
     error CooldownActive();
     error SlippageTooLoose();
     error TradingHalted();
@@ -99,6 +101,7 @@ contract BackstopVault {
         uint256 seniorProfitBps;
         uint256 maxTradeBps;
         uint256 maxSlippageBps;
+        uint256 exitSlippageBps;
         uint256 cooldown;
         uint256 stopBps;
         uint256 tradingDuration;
@@ -117,6 +120,7 @@ contract BackstopVault {
         seniorProfitBps = p.seniorProfitBps;
         maxTradeBps = p.maxTradeBps;
         maxSlippageBps = p.maxSlippageBps;
+        exitSlippageBps = p.exitSlippageBps;
         cooldown = p.cooldown;
         stopBps = p.stopBps;
         tradingDuration = p.tradingDuration;
@@ -181,8 +185,11 @@ contract BackstopVault {
         if (lastTradeAt != 0 && block.timestamp < lastTradeAt + cooldown) revert CooldownActive();
 
         (IERC20 tokenIn, IERC20 tokenOut) = isBuy ? (asset, riskToken) : (riskToken, asset);
-        if (isBuy && amountIn > (capital() * maxTradeBps) / BPS) revert TradeTooLarge();
-        _enforceSlippage(tokenIn, tokenOut, amountIn, minOut);
+        if (isBuy) {
+            if (amountIn > (capital() * maxTradeBps) / BPS) revert TradeTooLarge();
+            if (asset.balanceOf(address(this)) < seniorTotal + amountIn) revert ExposureTooHigh();
+        }
+        _enforceSlippage(tokenIn, tokenOut, amountIn, minOut, maxSlippageBps);
 
         lastTradeAt = block.timestamp;
         out = _swap(tokenIn, tokenOut, amountIn, minOut);
@@ -205,7 +212,7 @@ contract BackstopVault {
 
         uint256 risk = riskToken.balanceOf(address(this));
         if (risk == 0) return 0;
-        _enforceSlippage(riskToken, asset, risk, minOut);
+        _enforceSlippage(riskToken, asset, risk, minOut, exitSlippageBps);
         out = _swap(riskToken, asset, risk, minOut);
         emit Traded(false, risk, out);
     }
@@ -254,9 +261,12 @@ contract BackstopVault {
         emit Claimed(msg.sender, amount);
     }
 
-    function _enforceSlippage(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 minOut) internal view {
+    function _enforceSlippage(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 minOut, uint256 slippageBps)
+        internal
+        view
+    {
         uint256 expected = oracle.expectedOut(address(tokenIn), address(tokenOut), amountIn);
-        if (minOut < (expected * (BPS - maxSlippageBps)) / BPS) revert SlippageTooLoose();
+        if (minOut < (expected * (BPS - slippageBps)) / BPS) revert SlippageTooLoose();
     }
 
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 minOut) internal returns (uint256) {

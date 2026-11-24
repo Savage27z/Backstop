@@ -81,6 +81,7 @@ contract BackstopVaultTest is Test {
             seniorProfitBps: 7000,
             maxTradeBps: 2500,
             maxSlippageBps: 100,
+                exitSlippageBps: 2000,
             cooldown: 60,
             stopBps: 8000,
             tradingDuration: 1 days
@@ -137,7 +138,7 @@ contract BackstopVaultTest is Test {
 
     function test_ProfitSharedByFixedSplit() public {
         _fund();
-        _buyAll(150e6);
+        _buyAll(100e6);
         market.setPrice(1.2e6);
         usdt.mint(address(market), 0);
         _unwindAndSettleWithLiquidity();
@@ -161,7 +162,7 @@ contract BackstopVaultTest is Test {
 
     function test_BondAbsorbsLossBeforeSenior() public {
         _fund();
-        _buyAll(150e6);
+        _buyAll(100e6);
         market.setPrice(0.6e6);
         _unwindAndSettleWithLiquidity();
 
@@ -179,23 +180,6 @@ contract BackstopVaultTest is Test {
         assertEq(b, 200e6);
     }
 
-    function test_SeniorLossesAfterBondExhausted() public {
-        _fund();
-        uint256 amountIn = 150e6;
-        _buyAll(amountIn);
-        market.setPrice(0.1e6);
-        uint256 bal = whsk.balanceOf(address(vault));
-        uint256 minOut = (market.expectedOut(address(whsk), address(usdt), bal) * 99) / 100;
-        vm.prank(agent);
-        vault.unwind(minOut);
-        vm.prank(operator);
-        vault.settle();
-        uint256 finalBal = usdt.balanceOf(address(vault));
-        assertLt(finalBal, 500e6);
-        assertEq(vault.seniorPayoutTotal(), finalBal);
-        assertEq(vault.operatorPayout(), 0);
-    }
-
     function test_OnlyAgentCanTrade() public {
         _fund();
         vm.expectRevert(BackstopVault.NotAuthorized.selector);
@@ -207,6 +191,23 @@ contract BackstopVaultTest is Test {
         vm.prank(agent);
         vm.expectRevert(BackstopVault.TradeTooLarge.selector);
         vault.buy(151e6, 0);
+    }
+
+    function test_SeniorPrincipalIsSafeByConstruction() public {
+        _fund();
+        vm.prank(agent);
+        vm.expectRevert(BackstopVault.ExposureTooHigh.selector);
+        vault.buy(101e6, 0);
+
+        _buyAll(100e6);
+        market.setPrice(0.01e6);
+        uint256 bal = whsk.balanceOf(address(vault));
+        uint256 minOut = (market.expectedOut(address(whsk), address(usdt), bal) * 80) / 100;
+        vm.prank(agent);
+        vault.unwind(minOut);
+        assertEq(bal > 0, true);
+        vault.settle();
+        assertEq(vault.seniorPayoutTotal(), 500e6);
     }
 
     function test_CooldownEnforced() public {
@@ -229,11 +230,11 @@ contract BackstopVaultTest is Test {
 
     function test_StopTriggersAndHaltsTrading() public {
         _fund();
-        _buyAll(150e6);
+        _buyAll(100e6);
         vm.expectRevert(BackstopVault.StopNotReached.selector);
         vault.triggerStop();
 
-        market.setPrice(0.3e6);
+        market.setPrice(0.1e6);
         vault.triggerStop();
         assertTrue(vault.stopped());
 
@@ -245,8 +246,8 @@ contract BackstopVaultTest is Test {
 
     function test_AnyoneCanUnwindAfterStop() public {
         _fund();
-        _buyAll(150e6);
-        market.setPrice(0.3e6);
+        _buyAll(100e6);
+        market.setPrice(0.1e6);
         vault.triggerStop();
         uint256 bal = whsk.balanceOf(address(vault));
         uint256 minOut = (market.expectedOut(address(whsk), address(usdt), bal) * 99) / 100;
@@ -284,7 +285,7 @@ contract BackstopVaultTest is Test {
     function testFuzz_ConservationOfFunds(uint256 priceBps) public {
         priceBps = bound(priceBps, 500, 30_000);
         _fund();
-        _buyAll(150e6);
+        _buyAll(100e6);
         market.setPrice((1e6 * priceBps) / 10_000);
         uint256 bal = whsk.balanceOf(address(vault));
         uint256 minOut = (market.expectedOut(address(whsk), address(usdt), bal) * 99) / 100;

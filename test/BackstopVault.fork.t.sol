@@ -33,6 +33,7 @@ contract BackstopVaultForkTest is Test {
                 seniorProfitBps: 7000,
                 maxTradeBps: 5000,
                 maxSlippageBps: 300,
+                exitSlippageBps: 2000,
                 cooldown: 0,
                 stopBps: 8000,
                 tradingDuration: 1 days
